@@ -37,7 +37,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Face Fusion"
+                        android:text="Face Fusion Pro"
                         android:textSize="24sp"
                         android:textStyle="bold"
                         android:textColor="?attr/colorPrimary"
@@ -46,7 +46,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Swap faces between images using AI"
+                        android:text="Offline AI Face Swap for Images &amp; Videos"
                         android:textSize="14sp"
                         android:gravity="center"
                         android:layout_marginTop="4dp" />
@@ -55,7 +55,7 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Mode Selector Switcher -->
+            <!-- Mode Selector Switcher (3 Modes: Image, Library, Video) -->
             <com.google.android.material.button.MaterialButtonToggleGroup
                 android:id="@+id/modeToggleGroup"
                 android:layout_width="match_parent"
@@ -75,8 +75,8 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Standard Swap"
-                    app:icon="@android:drawable/ic_menu_rotate" />
+                    android:text="Image"
+                    android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnModeLibrary"
@@ -84,8 +84,17 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Face Library"
-                    app:icon="@android:drawable/ic_menu_myplaces" />
+                    android:text="Library"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnModeVideo"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Video"
+                    android:textSize="12sp" />
 
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
@@ -100,7 +109,6 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent">
 
-                <!-- Source Image Section -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/sourceCard"
                     android:layout_width="match_parent"
@@ -161,7 +169,6 @@
 
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Target Image Section -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/targetCard"
                     android:layout_width="match_parent"
@@ -200,8 +207,7 @@
                             android:textSize="13sp"
                             android:textColor="?attr/colorPrimary"
                             android:visibility="gone"
-                            android:layout_marginBottom="4dp"
-                            tools:text="3 faces detected. Tap a face or select below:" />
+                            android:layout_marginBottom="4dp" />
 
                         <HorizontalScrollView
                             android:id="@+id/targetFaceChipScrollView"
@@ -250,7 +256,6 @@
 
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Standard Process Button -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnProcess"
                     android:layout_width="match_parent"
@@ -273,7 +278,7 @@
 
             </LinearLayout>
 
-            <!-- Mode 2: Face Library & Multi-Face Mapping View Container -->
+            <!-- Mode 2: Face Library Container -->
             <LinearLayout
                 android:id="@+id/librarySwapContainer"
                 android:layout_width="match_parent"
@@ -284,7 +289,6 @@
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent">
 
-                <!-- Saved Faces Library Card -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/savedLibraryCard"
                     android:layout_width="match_parent"
@@ -341,14 +345,12 @@
                             android:layout_height="wrap_content"
                             android:orientation="horizontal"
                             android:clipToPadding="false"
-                            android:visibility="gone"
-                            tools:listitem="@layout/item_saved_face" />
+                            android:visibility="gone" />
 
                     </LinearLayout>
 
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Library Target Image & Face Mapping Card -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/libraryTargetCard"
                     android:layout_width="match_parent"
@@ -413,22 +415,19 @@
                             android:textSize="13sp"
                             android:textColor="?attr/colorPrimary"
                             android:visibility="gone"
-                            android:layout_marginBottom="8dp"
-                            tools:text="Select a library face for each detected target face:" />
+                            android:layout_marginBottom="8dp" />
 
                         <androidx.recyclerview.widget.RecyclerView
                             android:id="@+id/targetMappingRecyclerView"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:nestedScrollingEnabled="false"
-                            android:visibility="gone"
-                            tools:listitem="@layout/item_target_face_mapping" />
+                            android:visibility="gone" />
 
                     </LinearLayout>
 
                 </com.google.android.material.card.MaterialCardView>
 
-                <!-- Library Process Button -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLibraryProcess"
                     android:layout_width="match_parent"
@@ -446,6 +445,229 @@
                     android:layout_height="wrap_content"
                     android:text="Reset Target"
                     app:icon="@android:drawable/ic_menu_revert"
+                    app:iconGravity="textStart"
+                    android:layout_marginBottom="16dp" />
+
+            </LinearLayout>
+
+            <!-- Mode 3: Video Face Swap Container -->
+            <LinearLayout
+                android:id="@+id/videoSwapContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                app:layout_constraintTop_toBottomOf="@id/modeToggleGroup"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent">
+
+                <!-- Video Source Face Card -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="4dp"
+                    android:layout_marginBottom="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="1. Source Face for Video"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="8dp" />
+
+                        <ImageView
+                            android:id="@+id/videoSourceImageView"
+                            android:layout_width="match_parent"
+                            android:layout_height="160dp"
+                            android:scaleType="centerCrop"
+                            android:background="?attr/colorSurfaceVariant"
+                            android:layout_marginBottom="8dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSelectVideoSourceFace"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Select Source Face Image"
+                            app:icon="@android:drawable/ic_menu_gallery" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Target Video & Quality Card -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="4dp"
+                    android:layout_marginBottom="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="2. Target Video &amp; Output Quality"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:id="@+id/selectedVideoInfoText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="No video selected"
+                            android:textSize="14sp"
+                            android:padding="12dp"
+                            android:background="?attr/colorSurfaceVariant"
+                            android:layout_marginBottom="8dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnSelectTargetVideo"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Choose Video from Gallery"
+                            app:icon="@android:drawable/ic_media_play"
+                            android:layout_marginBottom="12dp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Output Resolution:"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="4dp" />
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/videoResolutionGroup"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            app:singleSelection="true"
+                            app:selectionRequired="true"
+                            app:checkedChip="@id/chipRes720"
+                            android:layout_marginBottom="8dp">
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipRes480"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="480p (Fast)" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipRes720"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="720p HD" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipRes1080"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="1080p Full HD" />
+
+                        </com.google.android.material.chip.ChipGroup>
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Frame Rate (FPS):"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="4dp" />
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/videoFpsGroup"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            app:singleSelection="true"
+                            app:selectionRequired="true"
+                            app:checkedChip="@id/chipFps24">
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipFps15"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="15 FPS" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipFps24"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="24 FPS" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipFps30"
+                                style="@style/Widget.Material3.Chip.Filter"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="30 FPS" />
+
+                        </com.google.android.material.chip.ChipGroup>
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Background Video Progress Card -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/videoProgressCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="4dp"
+                    android:visibility="gone"
+                    android:layout_marginBottom="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:id="@+id/videoProgressStatusText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Processing video in background..."
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:layout_marginBottom="8dp" />
+
+                        <com.google.android.material.progressindicator.LinearProgressIndicator
+                            android:id="@+id/videoProgressBar"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            app:indicatorColor="?attr/colorPrimary"
+                            app:trackThickness="8dp" />
+
+                    </LinearLayout>
+
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnProcessVideo"
+                    android:layout_width="match_parent"
+                    android:layout_height="60dp"
+                    android:text="Start Video Swap (Background)"
+                    android:textSize="16sp"
+                    app:icon="@android:drawable/ic_media_play"
                     app:iconGravity="textStart"
                     android:layout_marginBottom="16dp" />
 
@@ -471,10 +693,9 @@
                 app:layout_constraintTop_toBottomOf="@id/progressBar"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintEnd_toEndOf="parent"
-                android:layout_marginBottom="16dp"
-                tools:text="Processing... 25%" />
+                android:layout_marginBottom="16dp" />
 
-            <!-- Shared Result Image Section -->
+            <!-- Shared Result Image & Video Section -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/resultCard"
                 android:layout_width="match_parent"
@@ -493,13 +714,29 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <TextView
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Result"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:layout_marginBottom="8dp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Result (Tap for Fullscreen &amp; Zoom)"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnFullscreenResult"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Fullscreen" />
+
+                    </LinearLayout>
 
                     <ImageView
                         android:id="@+id/resultImageView"
@@ -507,6 +744,13 @@
                         android:layout_height="300dp"
                         android:scaleType="centerCrop"
                         android:contentDescription="Result image"
+                        android:layout_marginBottom="8dp" />
+
+                    <VideoView
+                        android:id="@+id/resultVideoView"
+                        android:layout_width="match_parent"
+                        android:layout_height="300dp"
+                        android:visibility="gone"
                         android:layout_marginBottom="8dp" />
 
                     <LinearLayout
@@ -607,8 +851,7 @@
                     android:layout_height="wrap_content"
                     android:textSize="13sp"
                     android:gravity="center"
-                    android:textColor="?android:attr/textColorSecondary"
-                    tools:text="Downloading... 45%" />
+                    android:textColor="?android:attr/textColorSecondary" />
 
             </LinearLayout>
 
