@@ -194,11 +194,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         filter.addAction(VideoProcessingService.ACTION_PROGRESS);
         filter.addAction(VideoProcessingService.ACTION_COMPLETE);
         filter.addAction(VideoProcessingService.ACTION_ERROR);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(videoReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(videoReceiver, filter);
-        }
+        ContextCompat.registerReceiver(this, videoReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
     }
 
     private void initViews() {
