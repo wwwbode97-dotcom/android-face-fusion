@@ -3,6 +3,7 @@ package com.pv.androidfacefusion;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
+import android.content.ClipData;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
@@ -87,6 +88,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
     private ChipGroup targetFaceChipGroup;
     private TextView targetFaceStatusText;
     private List<FaceDetector.Face> targetFacesList = new ArrayList<>();
+    private List<Uri> batchTargetUris = new ArrayList<>();
     private MaterialButton btnSelectSourceLocal, btnSelectSourceUrl;
     private MaterialButton btnSelectTargetLocal, btnSelectTargetUrl;
     private MaterialButton btnProcess, btnReset;
@@ -115,6 +117,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
     private Bitmap videoSourceBitmap;
     private Uri selectedVideoUri;
     private String resultVideoPath;
+    private boolean isVideoProcessing = false;
 
     // Shared Result & Overlay Views
     private VideoView resultVideoView;
@@ -152,20 +155,28 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
                 videoProgressStatusText.setText(status);
                 videoProgressBar.setProgressCompat(percent, true);
             } else if (VideoProcessingService.ACTION_COMPLETE.equals(action)) {
-                videoProgressCard.setVisibility(View.GONE);
-                btnProcessVideo.setEnabled(true);
+                resetVideoButtonState();
                 resultVideoPath = intent.getStringExtra(VideoProcessingService.EXTRA_OUTPUT_PATH);
                 resultBitmap = null;
                 showVideoResult(resultVideoPath);
                 Toast.makeText(MainActivity.this, "Video face swap completed!", Toast.LENGTH_LONG).show();
+            } else if (VideoProcessingService.ACTION_CANCELLED.equals(action)) {
+                resetVideoButtonState();
+                Toast.makeText(MainActivity.this, "Video face swap cancelled", Toast.LENGTH_SHORT).show();
             } else if (VideoProcessingService.ACTION_ERROR.equals(action)) {
-                videoProgressCard.setVisibility(View.GONE);
-                btnProcessVideo.setEnabled(true);
+                resetVideoButtonState();
                 String err = intent.getStringExtra(VideoProcessingService.EXTRA_ERROR);
                 showError("Video processing failed: " + err);
             }
         }
     };
+
+    private void resetVideoButtonState() {
+        isVideoProcessing = false;
+        videoProgressCard.setVisibility(View.GONE);
+        btnProcessVideo.setEnabled(true);
+        btnProcessVideo.setText("Start Video Face Swap");
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -193,6 +204,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         IntentFilter filter = new IntentFilter();
         filter.addAction(VideoProcessingService.ACTION_PROGRESS);
         filter.addAction(VideoProcessingService.ACTION_COMPLETE);
+        filter.addAction(VideoProcessingService.ACTION_CANCELLED);
         filter.addAction(VideoProcessingService.ACTION_ERROR);
         ContextCompat.registerReceiver(this, videoReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED);
     }
@@ -272,9 +284,26 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
             new ActivityResultContracts.StartActivityForResult(),
             result -> {
                 if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-                    Uri imageUri = result.getData().getData();
-                    if (imageUri != null) {
-                        loadImageFromUri(imageUri, currentImageTarget);
+                    Intent data = result.getData();
+                    if (currentImageTarget == ImagePickerTarget.STANDARD_TARGET && data.getClipData() != null) {
+                        ClipData clipData = data.getClipData();
+                        batchTargetUris.clear();
+                        for (int i = 0; i < clipData.getItemCount(); i++) {
+                            Uri uri = clipData.getItemAt(i).getUri();
+                            if (uri != null) batchTargetUris.add(uri);
+                        }
+                        if (batchTargetUris.size() == 1) {
+                            Uri singleUri = batchTargetUris.get(0);
+                            batchTargetUris.clear();
+                            loadImageFromUri(singleUri, currentImageTarget);
+                        } else if (batchTargetUris.size() > 1) {
+                            handleBatchTargetsSelected();
+                        }
+                    } else if (data.getData() != null) {
+                        if (currentImageTarget == ImagePickerTarget.STANDARD_TARGET) {
+                            batchTargetUris.clear();
+                        }
+                        loadImageFromUri(data.getData(), currentImageTarget);
                     }
                 }
             }
@@ -297,6 +326,25 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
             new ActivityResultContracts.RequestPermission(),
             isGranted -> {}
         );
+    }
+
+    private void handleBatchTargetsSelected() {
+        targetBitmap = null;
+        targetImageView.setFaces(null);
+        targetFacesList.clear();
+        targetFaceChipGroup.removeAllViews();
+        targetFaceChipScrollView.setVisibility(View.GONE);
+        targetFaceStatusText.setText("Batch Mode: " + batchTargetUris.size() + " images selected (all faces will be swapped & auto-saved)");
+        targetFaceStatusText.setVisibility(View.VISIBLE);
+
+        // Load first image as preview
+        Uri firstUri = batchTargetUris.get(0);
+        executorService.execute(() -> {
+            Bitmap preview = decodeAndResizeUri(firstUri);
+            if (preview != null) {
+                runOnUiThread(() -> targetImageView.setImageBitmap(preview));
+            }
+        });
     }
 
     private void loadSavedFaces() {
@@ -434,7 +482,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
 
         btnSelectSourceLocal.setOnClickListener(v -> {
             currentImageTarget = ImagePickerTarget.STANDARD_SOURCE;
-            openImagePicker();
+            openImagePicker(false);
         });
 
         btnSelectSourceUrl.setOnClickListener(v -> {
@@ -444,22 +492,29 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
 
         btnSelectTargetLocal.setOnClickListener(v -> {
             currentImageTarget = ImagePickerTarget.STANDARD_TARGET;
-            openImagePicker();
+            openImagePicker(true);
         });
 
         btnSelectTargetUrl.setOnClickListener(v -> {
             currentImageTarget = ImagePickerTarget.STANDARD_TARGET;
+            batchTargetUris.clear();
             showUrlInputDialog();
         });
 
-        btnProcess.setOnClickListener(v -> processFaceFusion());
+        btnProcess.setOnClickListener(v -> {
+            if (!batchTargetUris.isEmpty()) {
+                processBatchFaceFusion();
+            } else {
+                processFaceFusion();
+            }
+        });
         btnReset.setOnClickListener(v -> resetStandardSession());
 
         btnAddSavedFace.setOnClickListener(v -> showAddSavedFaceSourceDialog());
 
         btnSelectLibraryTargetLocal.setOnClickListener(v -> {
             currentImageTarget = ImagePickerTarget.LIBRARY_TARGET;
-            openImagePicker();
+            openImagePicker(false);
         });
 
         btnSelectLibraryTargetUrl.setOnClickListener(v -> {
@@ -473,7 +528,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         // Video Listeners
         btnSelectVideoSourceFace.setOnClickListener(v -> {
             currentImageTarget = ImagePickerTarget.VIDEO_SOURCE;
-            openImagePicker();
+            openImagePicker(false);
         });
 
         btnSelectTargetVideo.setOnClickListener(v -> {
@@ -482,7 +537,13 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
             videoPickerLauncher.launch(intent);
         });
 
-        btnProcessVideo.setOnClickListener(v -> startBackgroundVideoSwap());
+        btnProcessVideo.setOnClickListener(v -> {
+            if (isVideoProcessing) {
+                cancelBackgroundVideoSwap();
+            } else {
+                startBackgroundVideoSwap();
+            }
+        });
 
         btnSaveResult.setOnClickListener(v -> saveResult());
         btnFullscreenResult.setOnClickListener(v -> openFullscreenResult());
@@ -490,6 +551,97 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         sourceImageView.setOnClickListener(v -> openImagePreview(sourceBitmap));
         resultImageView.setOnClickListener(v -> openImagePreview(resultBitmap));
         targetImageView.setOnFaceSelectedListener(selectedIndices -> syncChipsWithOverlay());
+    }
+
+    private void processBatchFaceFusion() {
+        if (sourceBitmap == null || batchTargetUris.isEmpty()) {
+            Toast.makeText(this, "Please select a source face and target images", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (processor == null) return;
+
+        final List<Uri> urisToProcess = new ArrayList<>(batchTargetUris);
+        final int total = urisToProcess.size();
+
+        btnProcess.setEnabled(false);
+        resultCard.setVisibility(View.GONE);
+        showOverlay("Batch Face Swap", "Extracting source face...");
+
+        executorService.execute(() -> {
+            int successCount = 0;
+            Bitmap lastResult = null;
+            try {
+                float[] sourceEmbedding = processor.extractSourceEmbedding(sourceBitmap);
+
+                for (int i = 0; i < total; i++) {
+                    final int idx = i + 1;
+                    final int pct = (idx * 100) / total;
+                    runOnUiThread(() -> updateOverlay("Processing image " + idx + " / " + total, pct));
+
+                    Bitmap targetBmp = decodeAndResizeUri(urisToProcess.get(i));
+                    if (targetBmp == null) continue;
+
+                    try {
+                        Bitmap swapped = processor.processVideoFrame(sourceEmbedding, targetBmp);
+                        targetBmp.recycle();
+
+                        if (swapped != null) {
+                            saveBitmapToGallerySync(swapped, "face_fusion_batch_" + System.currentTimeMillis() + "_" + idx + ".jpg");
+                            successCount++;
+                            if (lastResult != null && lastResult != swapped) {
+                                lastResult.recycle();
+                            }
+                            lastResult = swapped;
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Batch item failed: " + idx, e);
+                        if (!targetBmp.isRecycled()) targetBmp.recycle();
+                    }
+                }
+
+                final int finalSuccess = successCount;
+                final Bitmap finalPreview = lastResult;
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    btnProcess.setEnabled(true);
+                    if (finalPreview != null) {
+                        showImageResult(finalPreview);
+                    }
+                    Toast.makeText(this, "Batch complete! Saved " + finalSuccess + " / " + total + " images to Pictures", Toast.LENGTH_LONG).show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    btnProcess.setEnabled(true);
+                    showError("Batch swap failed: " + e.getMessage());
+                });
+            }
+        });
+    }
+
+    private void saveBitmapToGallerySync(Bitmap bitmap, String fileName) throws IOException {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+
+        Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        if (uri != null) {
+            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+                if (out != null) {
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                }
+            }
+        }
+    }
+
+    private void cancelBackgroundVideoSwap() {
+        Intent cancelIntent = new Intent(this, VideoProcessingService.class);
+        cancelIntent.setAction(VideoProcessingService.ACTION_CANCEL);
+        startService(cancelIntent);
+        btnProcessVideo.setEnabled(false);
+        btnProcessVideo.setText("Stopping...");
+        videoProgressStatusText.setText("Cancelling video swap...");
     }
 
     private void startBackgroundVideoSwap() {
@@ -531,6 +683,9 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
             try {
                 float[] embedding = processor.extractSourceEmbedding(videoSourceBitmap);
                 runOnUiThread(() -> {
+                    isVideoProcessing = true;
+                    btnProcessVideo.setEnabled(true);
+                    btnProcessVideo.setText("Cancel Video Swap");
                     videoProgressBar.setIndeterminate(false);
                     videoProgressBar.setProgressCompat(0, false);
                     VideoProcessingService.setJobData(embedding, selectedVideoUri, finalMaxDim, finalFps);
@@ -540,12 +695,11 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
                     } else {
                         startService(serviceIntent);
                     }
-                    Toast.makeText(this, "Processing in background! You can minimize the app.", Toast.LENGTH_LONG).show();
+                    Toast.makeText(this, "Processing in background! Tap Cancel anytime to stop.", Toast.LENGTH_LONG).show();
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> {
-                    videoProgressCard.setVisibility(View.GONE);
-                    btnProcessVideo.setEnabled(true);
+                    resetVideoButtonState();
                     showError("Failed to extract source face: " + e.getMessage());
                 });
             }
@@ -597,6 +751,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         if (targetBitmap != null) { targetBitmap.recycle(); targetBitmap = null; }
         if (resultBitmap != null) { resultBitmap.recycle(); resultBitmap = null; }
         resultVideoPath = null;
+        batchTargetUris.clear();
 
         sourceImageView.setImageDrawable(null);
         targetImageView.setImageDrawable(null);
@@ -628,10 +783,15 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         resultCard.setVisibility(View.GONE);
     }
 
-    private void openImagePicker() {
-        Intent intent = new Intent(Intent.ACTION_PICK);
+    private void openImagePicker(boolean allowMultiple) {
+        Intent intent = new Intent(allowMultiple ? Intent.ACTION_GET_CONTENT : Intent.ACTION_PICK);
         intent.setType("image/*");
-        imagePickerLauncher.launch(intent);
+        if (allowMultiple) {
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+            imagePickerLauncher.launch(Intent.createChooser(intent, "Select one or more images"));
+        } else {
+            imagePickerLauncher.launch(intent);
+        }
     }
 
     private void showAddSavedFaceSourceDialog() {
@@ -640,7 +800,7 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
             .setTitle("Add Face to Library")
             .setItems(options, (dialog, which) -> {
                 currentImageTarget = ImagePickerTarget.ADD_SAVED_FACE;
-                if (which == 0) openImagePicker();
+                if (which == 0) openImagePicker(false);
                 else showUrlInputDialog();
             })
             .show();
@@ -665,28 +825,37 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         builder.show();
     }
 
+    private Bitmap decodeAndResizeUri(Uri uri) {
+        try {
+            InputStream inputStream = getContentResolver().openInputStream(uri);
+            if (inputStream == null) return null;
+            Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+            inputStream.close();
+            if (bitmap == null) return null;
+
+            if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
+                Bitmap converted = bitmap.copy(Bitmap.Config.ARGB_8888, false);
+                bitmap.recycle();
+                bitmap = converted;
+            }
+
+            if (bitmap.getWidth() > 1024 || bitmap.getHeight() > 1024) {
+                bitmap = ImageUtils.resizeImage(bitmap, 1024);
+            }
+            return bitmap;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
     private void loadImageFromUri(Uri uri, ImagePickerTarget target) {
         executorService.execute(() -> {
-            try {
-                InputStream inputStream = getContentResolver().openInputStream(uri);
-                Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
-                inputStream.close();
-
-                if (bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
-                    Bitmap converted = bitmap.copy(Bitmap.Config.ARGB_8888, false);
-                    bitmap.recycle();
-                    bitmap = converted;
-                }
-
-                if (bitmap.getWidth() > 1024 || bitmap.getHeight() > 1024) {
-                    bitmap = ImageUtils.resizeImage(bitmap, 1024);
-                }
-
-                Bitmap finalBitmap = bitmap;
+            Bitmap finalBitmap = decodeAndResizeUri(uri);
+            if (finalBitmap != null) {
                 runOnUiThread(() -> handleLoadedImage(finalBitmap, target));
-            } catch (IOException e) {
-                e.printStackTrace();
-                runOnUiThread(() -> showError("Failed to load image: " + e.getMessage()));
+            } else {
+                runOnUiThread(() -> showError("Failed to load image"));
             }
         });
     }
@@ -1142,19 +1311,8 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         if (resultBitmap == null) return;
         executorService.execute(() -> {
             try {
-                String fileName = "face_fusion_" + System.currentTimeMillis() + ".jpg";
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
-                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
-
-                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-                if (uri != null) {
-                    OutputStream out = getContentResolver().openOutputStream(uri);
-                    resultBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
-                    out.close();
-                    runOnUiThread(() -> Toast.makeText(this, "Image saved to Pictures folder", Toast.LENGTH_LONG).show());
-                }
+                saveBitmapToGallerySync(resultBitmap, "face_fusion_" + System.currentTimeMillis() + ".jpg");
+                runOnUiThread(() -> Toast.makeText(this, "Image saved to Pictures folder", Toast.LENGTH_LONG).show());
             } catch (Exception e) {
                 runOnUiThread(() -> showError("Failed to save image: " + e.getMessage()));
             }
