@@ -265,4 +265,34 @@ public class FaceFusionProcessor {
         Log.d(TAG, "Multiple face fusion completed!");
         return result;
     }
+        public float[] extractSourceEmbedding(Bitmap sourceImage) throws Exception {
+        List<FaceDetector.Face> sourceFaces = faceDetector.detectFaces(sourceImage);
+        if (sourceFaces.isEmpty()) {
+            throw new Exception("No face detected in source image.");
+        }
+        Bitmap alignedSourceFace = ImageUtils.alignFace(sourceImage, sourceFaces.get(0).landmarks, 112);
+        float[] embedding = faceEmbedder.getEmbedding(alignedSourceFace);
+        alignedSourceFace.recycle();
+        return embedding;
+    }
+
+    public Bitmap processVideoFrame(float[] sourceEmbedding, Bitmap frame) {
+        try {
+            List<FaceDetector.Face> targetFaces = faceDetector.detectFaces(frame);
+            if (targetFaces.isEmpty()) {
+                return frame.copy(Bitmap.Config.ARGB_8888, false);
+            }
+            FaceDetector.Face targetFace = targetFaces.get(0);
+            Bitmap alignedTargetFace = ImageUtils.alignFace(frame, targetFace.landmarks, 128);
+            Bitmap swappedFace = faceSwapper.swapFace(alignedTargetFace, sourceEmbedding, frame);
+            Bitmap result = ImageUtils.blendFaces(frame, swappedFace, targetFace.landmarks, 128);
+            alignedTargetFace.recycle();
+            swappedFace.recycle();
+            return result;
+        } catch (Exception e) {
+            Log.w(TAG, "Frame skipped: " + e.getMessage());
+            return frame.copy(Bitmap.Config.ARGB_8888, false);
+        }
+    }
+
 }
