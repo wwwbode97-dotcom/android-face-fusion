@@ -736,3 +736,456 @@ public class MainActivity extends AppCompatActivity implements SavedFacesAdapter
         switch (target) {
             case STANDARD_SOURCE:
                 sourceBitmap = bitmap;
+                sourceImageView.setImageBitmap(bitmap);
+                break;
+            case STANDARD_TARGET:
+                targetBitmap = bitmap;
+                targetImageView.setImageBitmap(bitmap);
+                detectTargetFacesAsync(bitmap);
+                break;
+            case ADD_SAVED_FACE:
+                processAddFaceToLibraryAsync(bitmap);
+                break;
+            case LIBRARY_TARGET:
+                libraryTargetBitmap = bitmap;
+                libraryTargetImageView.setImageBitmap(bitmap);
+                detectLibraryTargetFacesAsync(bitmap);
+                break;
+            case VIDEO_SOURCE:
+                videoSourceBitmap = bitmap;
+                videoSourceImageView.setImageBitmap(bitmap);
+                break;
+        }
+    }
+
+    private void processAddFaceToLibraryAsync(Bitmap bitmap) {
+        if (faceDetector == null || faceEmbedder == null) {
+            Toast.makeText(this, "AI models are still loading, please wait", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        showOverlay("Adding Face to Library", "Detecting face and extracting features...");
+
+        executorService.execute(() -> {
+            try {
+                List<FaceDetector.Face> faces = faceDetector.detectFaces(bitmap);
+                if (faces.isEmpty()) {
+                    runOnUiThread(() -> {
+                        hideOverlay();
+                        showError("No face detected in the selected image.");
+                    });
+                    return;
+                }
+
+                if (faces.size() == 1) {
+                    extractAndPromptSaveFace(bitmap, faces.get(0));
+                } else {
+                    runOnUiThread(() -> {
+                        hideOverlay();
+                        showMultiFaceSelectionDialogForLibrary(bitmap, faces);
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    showError("Failed to process face: " + e.getMessage());
+                });
+            }
+        });
+    }
+
+    private void showMultiFaceSelectionDialogForLibrary(Bitmap bitmap, List<FaceDetector.Face> faces) {
+        String[] items = new String[faces.size()];
+        for (int i = 0; i < faces.size(); i++) {
+            items[i] = "Face " + (i + 1) + " (Confidence: " + Math.round(faces.get(i).score * 100) + "%)";
+        }
+
+        new AlertDialog.Builder(this)
+            .setTitle("Select Face to Save")
+            .setItems(items, (dialog, which) -> {
+                showOverlay("Adding Face to Library", "Extracting face features...");
+                executorService.execute(() -> {
+                    try {
+                        extractAndPromptSaveFace(bitmap, faces.get(which));
+                    } catch (Exception e) {
+                        runOnUiThread(() -> {
+                            hideOverlay();
+                            showError("Failed to extract face: " + e.getMessage());
+                        });
+                    }
+                });
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void extractAndPromptSaveFace(Bitmap bitmap, FaceDetector.Face face) throws Exception {
+        Bitmap alignedFace = ImageUtils.alignFace(bitmap, face.landmarks, 112);
+        float[] embedding = faceEmbedder.getEmbedding(alignedFace);
+        alignedFace.recycle();
+
+        Bitmap faceCrop = cropFaceCrop(bitmap, face.bbox);
+
+        runOnUiThread(() -> {
+            hideOverlay();
+            promptFaceNameAndSave(faceCrop, embedding);
+        });
+    }
+
+    private Bitmap cropFaceCrop(Bitmap src, RectF bbox) {
+        try {
+            int left = Math.max(0, (int) bbox.left);
+            int top = Math.max(0, (int) bbox.top);
+            int right = Math.min(src.getWidth(), (int) bbox.right);
+            int bottom = Math.min(src.getHeight(), (int) bbox.bottom);
+            int width = right - left;
+            int height = bottom - top;
+            if (width > 0 && height > 0) {
+                return Bitmap.createBitmap(src, left, top, width, height);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return src;
+    }
+
+    private void promptFaceNameAndSave(Bitmap faceCrop, float[] embedding) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Name Saved Face");
+
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        input.setHint("e.g. John, Mom, Actor");
+        builder.setView(input);
+
+        builder.setPositiveButton("Save", (dialog, which) -> {
+            String name = input.getText().toString().trim();
+            if (name.isEmpty()) name = "Face " + (savedFacesAdapter.getItemCount() + 1);
+            final String finalName = name;
+            executorService.execute(() -> {
+                libraryManager.saveFace(finalName, faceCrop, embedding);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "Saved face '" + finalName + "'!", Toast.LENGTH_SHORT).show();
+                    loadSavedFaces();
+                });
+            });
+        });
+
+        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
+        builder.show();
+    }
+
+    @Override
+    public void onEditFaceName(SavedFace face) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle("Rename Saved Face");
+        final EditText input = new EditText(this);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
+        input.setText(face.getName());
+        builder.setView(input);
+
+        builder.setPositiveButton("Update", (dialog, which) -> {
+            String newName = input.getText().toString().trim();
+            if (!newName.isEmpty()) {
+                executorService.execute(() -> {
+                    libraryManager.updateFaceName(face.getId(), newName);
+                    runOnUiThread(this::loadSavedFaces);
+                });
+            }
+        });
+        builder.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
+        builder.show();
+    }
+
+    @Override
+    public void onDeleteFace(SavedFace face) {
+        new AlertDialog.Builder(this)
+            .setTitle("Delete Face")
+            .setMessage("Are you sure you want to delete '" + face.getName() + "'?")
+            .setPositiveButton("Delete", (dialog, which) -> {
+                executorService.execute(() -> {
+                    libraryManager.deleteFace(face.getId());
+                    runOnUiThread(this::loadSavedFaces);
+                });
+            })
+            .setNegativeButton("Cancel", null)
+            .show();
+    }
+
+    private void detectTargetFacesAsync(Bitmap bitmap) {
+        if (faceDetector == null || bitmap == null) return;
+        executorService.execute(() -> {
+            try {
+                List<FaceDetector.Face> faces = faceDetector.detectFaces(bitmap);
+                runOnUiThread(() -> updateTargetFaceSelectionUI(faces));
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (targetFaceStatusText != null) targetFaceStatusText.setVisibility(View.GONE);
+                    if (targetFaceChipScrollView != null) targetFaceChipScrollView.setVisibility(View.GONE);
+                });
+            }
+        });
+    }
+
+    private boolean isSyncingChips = false;
+
+    private void updateTargetFaceSelectionUI(List<FaceDetector.Face> faces) {
+        targetFacesList = (faces != null) ? faces : new ArrayList<>();
+        targetImageView.setFaces(targetFacesList);
+
+        targetFaceChipGroup.removeAllViews();
+        targetFaceChipGroup.setOnCheckedStateChangeListener(null);
+
+        if (targetFacesList.isEmpty()) {
+            targetFaceStatusText.setText("No face detected in target image");
+            targetFaceStatusText.setVisibility(View.VISIBLE);
+            targetFaceChipScrollView.setVisibility(View.GONE);
+            return;
+        }
+
+        targetFaceStatusText.setVisibility(View.VISIBLE);
+
+        if (targetFacesList.size() == 1) {
+            targetFaceStatusText.setText("1 face detected in target image:");
+            targetFaceChipScrollView.setVisibility(View.VISIBLE);
+            Chip chip = createFaceChip("Face 1", 0);
+            chip.setChecked(true);
+            targetFaceChipGroup.addView(chip);
+        } else {
+            targetFaceStatusText.setText(targetFacesList.size() + " faces detected:");
+            targetFaceChipScrollView.setVisibility(View.VISIBLE);
+            Chip allChip = createFaceChip("Select All (" + targetFacesList.size() + ")", -1);
+            allChip.setChecked(true);
+            targetFaceChipGroup.addView(allChip);
+            for (int i = 0; i < targetFacesList.size(); i++) {
+                Chip chip = createFaceChip("Face " + (i + 1), i);
+                chip.setChecked(true);
+                targetFaceChipGroup.addView(chip);
+            }
+        }
+
+        for (int i = 0; i < targetFaceChipGroup.getChildCount(); i++) {
+            View child = targetFaceChipGroup.getChildAt(i);
+            if (child instanceof Chip && child.getTag() instanceof Integer) {
+                Chip chip = (Chip) child;
+                int index = (Integer) chip.getTag();
+                chip.setOnClickListener(v -> {
+                    if (isSyncingChips) return;
+                    if (index == -1) {
+                        if (chip.isChecked()) targetImageView.setSelectedFaceIndex(-1);
+                        else targetImageView.setSelectedFaceIndices(new HashSet<>());
+                    } else {
+                        targetImageView.toggleFaceIndex(index);
+                    }
+                    syncChipsWithOverlay();
+                });
+            }
+        }
+    }
+
+    private Chip createFaceChip(String label, int index) {
+        Chip chip = new Chip(this);
+        chip.setText(label);
+        chip.setCheckable(true);
+        chip.setClickable(true);
+        chip.setTag(index);
+        chip.setId(View.generateViewId());
+        return chip;
+    }
+
+    private void syncChipsWithOverlay() {
+        if (targetFaceChipGroup == null || targetFacesList == null) return;
+        isSyncingChips = true;
+        Set<Integer> selected = targetImageView.getSelectedFaceIndices();
+        boolean allSelected = (selected.size() == targetFacesList.size() && !targetFacesList.isEmpty());
+
+        for (int i = 0; i < targetFaceChipGroup.getChildCount(); i++) {
+            View child = targetFaceChipGroup.getChildAt(i);
+            if (child instanceof Chip && child.getTag() instanceof Integer) {
+                Chip chip = (Chip) child;
+                int tag = (Integer) chip.getTag();
+                chip.setChecked(tag == -1 ? allSelected : selected.contains(tag));
+            }
+        }
+        isSyncingChips = false;
+    }
+
+    private void detectLibraryTargetFacesAsync(Bitmap bitmap) {
+        if (faceDetector == null || bitmap == null) return;
+        executorService.execute(() -> {
+            try {
+                List<FaceDetector.Face> faces = faceDetector.detectFaces(bitmap);
+                libraryTargetFacesList = (faces != null) ? faces : new ArrayList<>();
+                List<SavedFace> savedFaces = libraryManager.getSavedFaces();
+
+                runOnUiThread(() -> {
+                    libraryTargetImageView.setFaces(libraryTargetFacesList);
+                    if (libraryTargetFacesList.isEmpty()) {
+                        libraryTargetStatusText.setText("No face detected in target image");
+                        libraryTargetStatusText.setVisibility(View.VISIBLE);
+                        targetMappingRecyclerView.setVisibility(View.GONE);
+                    } else {
+                        libraryTargetStatusText.setText(libraryTargetFacesList.size() + " face(s) detected:");
+                        libraryTargetStatusText.setVisibility(View.VISIBLE);
+                        targetMappingRecyclerView.setVisibility(View.VISIBLE);
+                        targetMappingAdapter.setData(bitmap, libraryTargetFacesList, savedFaces);
+                    }
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    libraryTargetStatusText.setVisibility(View.GONE);
+                    targetMappingRecyclerView.setVisibility(View.GONE);
+                });
+            }
+        });
+    }
+
+    private void processFaceFusion() {
+        if (sourceBitmap == null || targetBitmap == null) {
+            Toast.makeText(this, "Please select both source and target images", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (processor == null) return;
+
+        final Set<Integer> selectedFaceIndices = targetImageView.getSelectedFaceIndices();
+        if (selectedFaceIndices == null || selectedFaceIndices.isEmpty()) {
+            Toast.makeText(this, "Please select at least one target face", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        btnProcess.setEnabled(false);
+        resultCard.setVisibility(View.GONE);
+        showOverlay("Swapping Faces", "Processing face swap...");
+
+        executorService.execute(() -> {
+            try {
+                Bitmap result = processor.processFaceFusion(sourceBitmap, targetBitmap, selectedFaceIndices);
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    btnProcess.setEnabled(true);
+                    showImageResult(result);
+                    Toast.makeText(this, "Face swap completed!", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    btnProcess.setEnabled(true);
+                    showError("Face fusion failed: " + e.getMessage());
+                });
+            }
+        });
+    }
+
+    private void processLibraryFaceFusion() {
+        if (libraryTargetBitmap == null || processor == null) return;
+
+        Map<Integer, SavedFace> selectedMapping = targetMappingAdapter.getSelectedMapping();
+        if (selectedMapping.isEmpty()) {
+            Toast.makeText(this, "Please select at least one face from your library", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Map<Integer, float[]> embeddingMap = new HashMap<>();
+        for (Map.Entry<Integer, SavedFace> entry : selectedMapping.entrySet()) {
+            if (entry.getValue() != null) {
+                embeddingMap.put(entry.getKey(), entry.getValue().getEmbedding());
+            }
+        }
+
+        btnLibraryProcess.setEnabled(false);
+        resultCard.setVisibility(View.GONE);
+        showOverlay("Swapping Faces with Library", "Processing...");
+
+        executorService.execute(() -> {
+            try {
+                Bitmap result = processor.processFaceFusionWithMapping(libraryTargetBitmap, embeddingMap);
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    btnLibraryProcess.setEnabled(true);
+                    showImageResult(result);
+                    Toast.makeText(this, "Library swap completed!", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    hideOverlay();
+                    btnLibraryProcess.setEnabled(true);
+                    showError("Library swap failed: " + e.getMessage());
+                });
+            }
+        });
+    }
+
+    private void saveResult() {
+        if (resultVideoPath != null) {
+            executorService.execute(() -> {
+                try {
+                    String fileName = "face_fusion_video_" + System.currentTimeMillis() + ".mp4";
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Video.Media.DISPLAY_NAME, fileName);
+                    values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+                    values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES);
+
+                    Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        try (InputStream in = new FileInputStream(new File(resultVideoPath));
+                             OutputStream out = getContentResolver().openOutputStream(uri)) {
+                            byte[] buf = new byte[8192];
+                            int len;
+                            while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+                        }
+                        runOnUiThread(() -> Toast.makeText(this, "Video saved to Movies folder!", Toast.LENGTH_LONG).show());
+                    }
+                } catch (Exception e) {
+                    runOnUiThread(() -> showError("Failed to save video: " + e.getMessage()));
+                }
+            });
+            return;
+        }
+
+        if (resultBitmap == null) return;
+        executorService.execute(() -> {
+            try {
+                String fileName = "face_fusion_" + System.currentTimeMillis() + ".jpg";
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+                values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES);
+
+                Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                if (uri != null) {
+                    OutputStream out = getContentResolver().openOutputStream(uri);
+                    resultBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                    out.close();
+                    runOnUiThread(() -> Toast.makeText(this, "Image saved to Pictures folder", Toast.LENGTH_LONG).show());
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> showError("Failed to save image: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void requestPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.INTERNET) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.INTERNET);
+        }
+    }
+
+    private void showError(String message) {
+        new AlertDialog.Builder(this)
+            .setTitle("Error")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        try { unregisterReceiver(videoReceiver); } catch (Exception ignored) {}
+        executorService.shutdown();
+        if (faceDetector != null) faceDetector.close();
+        if (faceEmbedder != null) faceEmbedder.close();
+        if (faceSwapper != null) faceSwapper.close();
+    }
+}
