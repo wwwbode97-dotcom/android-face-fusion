@@ -1,5 +1,6 @@
 package com.pv.androidfacefusion;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.media.MediaCodec;
@@ -22,6 +23,7 @@ public class VideoFaceSwapper {
         void onProgress(int percent, int currentFrame, int totalFrames);
     }
 
+    @SuppressLint("WrongConstant")
     public static void swapVideo(
             Context context,
             Uri videoUri,
@@ -201,7 +203,8 @@ public class VideoFaceSwapper {
                 audioInfo.offset = 0;
                 audioInfo.size = sampleSize;
                 audioInfo.presentationTimeUs = audioExtractor.getSampleTime();
-                audioInfo.flags = audioExtractor.getSampleFlags();
+                audioInfo.flags = (audioExtractor.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0
+                        ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0;
                 muxer.writeSampleData(muxerAudioTrack, audioBuf, audioInfo);
                 audioExtractor.advance();
             }
