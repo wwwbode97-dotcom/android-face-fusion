@@ -1,10 +1,13 @@
 package com.pv.androidfacefusion;
 
+import android.annotation.SuppressLint;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.ServiceInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
@@ -14,12 +17,15 @@ import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import java.io.File;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VideoProcessingService extends Service {
 
     public static final String ACTION_PROGRESS = "com.pv.androidfacefusion.VIDEO_PROGRESS";
     public static final String ACTION_COMPLETE = "com.pv.androidfacefusion.VIDEO_COMPLETE";
     public static final String ACTION_ERROR = "com.pv.androidfacefusion.VIDEO_ERROR";
+    public static final String ACTION_CANCEL = "com.pv.androidfacefusion.VIDEO_CANCEL";
+    public static final String ACTION_CANCELLED = "com.pv.androidfacefusion.VIDEO_CANCELLED";
 
     public static final String EXTRA_PERCENT = "percent";
     public static final String EXTRA_STATUS = "status";
@@ -34,6 +40,8 @@ public class VideoProcessingService extends Service {
     private static int pendingMaxDim = 720;
     private static int pendingFps = 24;
 
+    private static final AtomicBoolean isCancelled = new AtomicBoolean(false);
+
     public static void setJobData(float[] embedding, Uri videoUri, int maxDimension, int fps) {
         pendingSourceEmbedding = embedding;
         pendingVideoUri = videoUri;
@@ -43,15 +51,28 @@ public class VideoProcessingService extends Service {
 
     private PowerManager.WakeLock wakeLock;
 
+    @SuppressLint("ForegroundServiceType")
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && ACTION_CANCEL.equals(intent.getAction())) {
+            isCancelled.set(true);
+            updateNotification("Cancelling...", 0);
+            return START_NOT_STICKY;
+        }
+
+        isCancelled.set(false);
         createNotificationChannel();
-        startForeground(NOTIF_ID, buildNotification("Starting video face swap...", 0));
+        Notification notification = buildNotification("Starting video face swap...", 0);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        } else {
+            startForeground(NOTIF_ID, notification);
+        }
 
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FaceFusion::VideoSwapWakeLock");
-            wakeLock.acquire(60 * 60 * 1000L); // Max 1 hour
+            wakeLock.acquire(60 * 60 * 1000L);
         }
 
         new Thread(() -> {
@@ -76,7 +97,7 @@ public class VideoProcessingService extends Service {
                 if (!outDir.exists()) outDir.mkdirs();
                 File outFile = new File(outDir, "swapped_video_" + System.currentTimeMillis() + ".mp4");
 
-                VideoFaceSwapper.swapVideo(
+                boolean completed = VideoFaceSwapper.swapVideo(
                         this,
                         pendingVideoUri,
                         pendingSourceEmbedding,
@@ -92,14 +113,21 @@ public class VideoProcessingService extends Service {
                             pIntent.putExtra(EXTRA_PERCENT, percent);
                             pIntent.putExtra(EXTRA_STATUS, status);
                             sendBroadcast(pIntent);
-                        }
+                        },
+                        isCancelled::get
                 );
 
-                updateNotification("Video Face Swap Complete!", 100);
-                Intent cIntent = new Intent(ACTION_COMPLETE);
-                cIntent.setPackage(getPackageName());
-                cIntent.putExtra(EXTRA_OUTPUT_PATH, outFile.getAbsolutePath());
-                sendBroadcast(cIntent);
+                if (completed) {
+                    updateNotification("Video Face Swap Complete!", 100);
+                    Intent cIntent = new Intent(ACTION_COMPLETE);
+                    cIntent.setPackage(getPackageName());
+                    cIntent.putExtra(EXTRA_OUTPUT_PATH, outFile.getAbsolutePath());
+                    sendBroadcast(cIntent);
+                } else {
+                    Intent cancelDoneIntent = new Intent(ACTION_CANCELLED);
+                    cancelDoneIntent.setPackage(getPackageName());
+                    sendBroadcast(cancelDoneIntent);
+                }
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -130,12 +158,21 @@ public class VideoProcessingService extends Service {
     }
 
     private Notification buildNotification(String text, int progress) {
+        Intent cancelIntent = new Intent(this, VideoProcessingService.class);
+        cancelIntent.setAction(ACTION_CANCEL);
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent cancelPendingIntent = PendingIntent.getService(this, 0, cancelIntent, pendingFlags);
+
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Face Fusion Video")
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.ic_media_play)
                 .setProgress(100, progress, progress == 0)
                 .setOngoing(true)
+                .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelPendingIntent)
                 .build();
     }
 
