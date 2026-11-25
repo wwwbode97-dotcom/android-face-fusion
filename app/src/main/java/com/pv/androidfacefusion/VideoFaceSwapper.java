@@ -232,7 +232,6 @@ public class VideoFaceSwapper {
                             }
                         }
                     } else {
-                        // Skip intermediate frame quickly
                         decoder.releaseOutputBuffer(outIdx, false);
                     }
 
@@ -370,4 +369,13 @@ public class VideoFaceSwapper {
                 int Y = ((66 * R + 129 * G + 25 * B + 128) >> 8) + 16;
                 yuv[yIndex++] = (byte) (Y < 0 ? 0 : (Y > 255 ? 255 : Y));
 
-                if (evenRow && (i & 1) == 0 && uv
+                if (evenRow && (i & 1) == 0 && uvIndex + 1 < yuv.length) {
+                    int U = ((-38 * R - 74 * G + 112 * B + 128) >> 8) + 128;
+                    int V = ((112 * R - 94 * G - 18 * B + 128) >> 8) + 128;
+                    yuv[uvIndex++] = (byte) (U < 0 ? 0 : (U > 255 ? 255 : U));
+                    yuv[uvIndex++] = (byte) (V < 0 ? 0 : (V > 255 ? 255 : V));
+                }
+            }
+        }
+    }
+}
